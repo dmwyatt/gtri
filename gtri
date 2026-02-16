@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# gtri — Interactive gtr wrapper with fuzzy worktree selection
+#
+# Usage:
+#   gtri <subcommand> [extra flags...]   Pick a worktree, then run: git gtr <subcommand> <branch> [flags]
+#   gtri                                  Pick a subcommand first, then pick a worktree
+
+BRANCH_TAKING_CMDS=(editor ai go run rm mv copy)
+
+usage() {
+    cat <<'EOF'
+gtri — Interactive wrapper for git gtr with fuzzy worktree selection
+
+USAGE:
+  gtri <subcommand> [search] [extra flags...]
+  gtri
+
+DESCRIPTION:
+  Presents a fuzzy picker (via gum) to select a worktree, then passes the
+  selected branch to git gtr along with any extra flags.
+
+  Without a subcommand, prompts you to pick one first.
+
+  If a search term is provided (first non-flag arg after subcommand):
+    - Single match:    confirms and proceeds
+    - Multiple matches: opens picker pre-filtered
+    - No matches:       opens full picker
+
+SUBCOMMANDS (branch-taking):
+  editor, ai, go, run, rm, mv, copy
+
+DEPENDENCIES:
+  gum   — https://github.com/charmbracelet/gum
+
+EXAMPLES:
+  gtri ai                    # Pick worktree, then: git gtr ai <branch>
+  gtri ai feat               # If "feat" matches one branch, confirm and go
+  gtri rm --delete-branch    # Pick worktree, then: git gtr rm <branch> --delete-branch
+  gtri rm feat --delete-branch  # Match "feat", confirm, then rm with flag
+  gtri                       # Pick subcommand, then pick worktree
+EOF
+}
+
+die() {
+    echo "gtri: $1" >&2
+    exit 1
+}
+
+check_deps() {
+    command -v gum >/dev/null 2>&1 || die "gum is required but not installed. See https://github.com/charmbracelet/gum"
+    command -v git >/dev/null 2>&1 || die "git is required but not installed"
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not inside a git repository"
+    command -v git-gtr >/dev/null 2>&1 || die "git-gtr is required but not installed. See https://github.com/coderabbitai/git-worktree-runner"
+}
+
+get_worktree_branches() {
+    local porcelain
+    porcelain="$(git gtr list --porcelain 2>/dev/null)" || die "failed to list worktrees"
+
+    # Each line is: path\tbranch\tstatus
+    local branches=()
+    while IFS=$'\t' read -r path branch status; do
+        [[ -z "$branch" ]] && continue
+        branches+=("$branch")
+    done <<< "$porcelain"
+
+    if [[ ${#branches[@]} -eq 0 ]]; then
+        die "no worktrees found. Create one with: git gtr new <branch>"
+    fi
+
+    printf '%s\n' "${branches[@]}"
+}
+
+pick_worktree() {
+    local search="${1:-}"
+    local branches
+    branches="$(get_worktree_branches)"
+
+    local count
+    count="$(echo "$branches" | wc -l)"
+
+    # Only one worktree total — use it directly
+    if [[ "$count" -eq 1 ]]; then
+        echo "$branches"
+        return
+    fi
+
+    # If a search term was provided, try to narrow down
+    if [[ -n "$search" ]]; then
+        local matches
+        matches="$(echo "$branches" | grep -iF "$search" || true)"
+        local match_count
+        match_count="$(echo -n "$matches" | grep -c '^' || true)"
+
+        if [[ "$match_count" -eq 1 ]]; then
+            # Exactly one match — confirm and proceed
+            if gum confirm "Use $matches?"; then
+                echo "$matches"
+                return
+            fi
+            # User declined — fall through to full picker
+        elif [[ "$match_count" -gt 1 ]]; then
+            # Multiple matches — open picker pre-filtered with search term
+            local selected
+            selected="$(echo "$matches" | gum filter --value "$search" --placeholder "Select worktree...")" || die "no worktree selected"
+            [[ -z "$selected" ]] && die "no worktree selected"
+            echo "$selected"
+            return
+        fi
+        # No matches — fall through to full picker
+    fi
+
+    local selected
+    selected="$(echo "$branches" | gum filter --placeholder "Select worktree...")" || die "no worktree selected"
+    [[ -z "$selected" ]] && die "no worktree selected"
+    echo "$selected"
+}
+
+pick_subcommand() {
+    local selected
+    selected="$(printf '%s\n' "${BRANCH_TAKING_CMDS[@]}" | gum filter --placeholder "Select subcommand...")" || die "no subcommand selected"
+    [[ -z "$selected" ]] && die "no subcommand selected"
+    echo "$selected"
+}
+
+main() {
+    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+        usage
+        exit 0
+    fi
+
+    check_deps
+
+    local subcmd=""
+    local search=""
+    local -a extra_flags=()
+
+    if [[ $# -ge 1 ]]; then
+        subcmd="$1"
+        shift
+        # First non-flag arg is the search term; everything else is flags
+        for arg in "$@"; do
+            if [[ -z "$search" && "$arg" != -* ]]; then
+                search="$arg"
+            else
+                extra_flags+=("$arg")
+            fi
+        done
+    else
+        subcmd="$(pick_subcommand)"
+    fi
+
+    local branch
+    branch="$(pick_worktree "$search")"
+
+    if [[ ${#extra_flags[@]} -gt 0 ]]; then
+        echo "git gtr $subcmd $branch ${extra_flags[*]}"
+        exec git gtr "$subcmd" "$branch" "${extra_flags[@]}"
+    else
+        echo "git gtr $subcmd $branch"
+        exec git gtr "$subcmd" "$branch"
+    fi
+}
+
+main "$@"
