@@ -216,3 +216,35 @@ class TestMain:
         with patch("gtri.cli.check_dependencies", side_effect=GtriError("test error")):
             result = main(["list"])
             assert result == 1
+
+    def test_no_args_picker_excludes_creation_commands(self):
+        """Regression: zero-arg picker must not offer 'new'/'new-ai' since they
+        require a branch argument that can't be provided through the picker."""
+        picker_items = None
+
+        def capture_picker(items, **kwargs):
+            nonlocal picker_items
+            picker_items = items
+            return "ai"
+
+        with patch("gtri.cli.check_dependencies"):
+            with patch("gtri.cli.run_picker", side_effect=capture_picker):
+                with patch("gtri.cli.dispatch"):
+                    main([])
+
+        assert "new" not in picker_items
+        assert "new-ai" not in picker_items
+        assert "ai" in picker_items
+        assert "list" in picker_items
+
+
+class TestMainExitCode:
+    """Regression: main() return value must propagate as process exit code."""
+
+    def test_entry_point_uses_sys_exit(self):
+        """The console_scripts entry point must call sys.exit(main())."""
+        from pathlib import Path
+
+        main_path = Path(__file__).parent.parent / "src" / "gtri" / "__main__.py"
+        source = main_path.read_text()
+        assert "sys.exit" in source

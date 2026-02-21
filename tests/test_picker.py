@@ -75,3 +75,21 @@ class TestFuzzyPickerApp:
         async with app.run_test() as pilot:
             await pilot.press("enter")
         assert app.return_value is None
+
+    @pytest.mark.asyncio
+    async def test_clear_filter_shows_all_items(self):
+        """Regression: clearing the input when initial_value is set must show
+        all items, not re-apply the initial filter."""
+        app = FuzzyPickerApp(
+            items=("main", "feat-login", "feat-signup"),
+            title="Select",
+            initial_value="feat",
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            # Clear "feat" (4 chars) by pressing backspace
+            await pilot.press("backspace", "backspace", "backspace", "backspace")
+            await pilot.pause()
+            # "main" should now be the first item (all items visible)
+            await pilot.press("enter")
+        assert app.return_value == "main"

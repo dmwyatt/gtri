@@ -3,8 +3,8 @@ import sys
 
 from gtri import GtriError
 from gtri.commands import (
-    ALL_COMMANDS,
     CommandCategory,
+    PICKABLE_COMMANDS,
     classify_command,
     parse_branch_taking_args,
 )
@@ -177,7 +177,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if not argv:
             subcmd = run_picker(
-                tuple(ALL_COMMANDS),
+                PICKABLE_COMMANDS,
                 title="Select subcommand...",
             )
             if not subcmd:

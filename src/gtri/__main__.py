@@ -1,3 +1,5 @@
+import sys
+
 from gtri.cli import main
 
-main()
+sys.exit(main())

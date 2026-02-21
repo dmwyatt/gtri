@@ -49,11 +49,10 @@ class FuzzyPickerApp(App[str | None]):
                 placeholder="Type to filter...",
                 id="filter-input",
             )
-            yield OptionList(*self._get_filtered_options(), id="option-list")
+            yield OptionList(*self._get_filtered_options(self._initial_value), id="option-list")
 
-    def _get_filtered_options(self, query: str = "") -> list[str]:
-        q = query or self._initial_value
-        return list(filter_items(self._items, q))
+    def _get_filtered_options(self, query: str) -> list[str]:
+        return list(filter_items(self._items, query))
 
     def on_mount(self) -> None:
         if self._initial_value:
