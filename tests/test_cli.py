@@ -94,11 +94,10 @@ class TestResolveBranch:
             result = resolve_branch(branches, "feat")
         assert result == "feat-login"
 
-    def test_no_matches_opens_full_picker(self):
+    def test_no_matches_raises_error(self):
         branches = ("main", "feat-login")
-        with patch("gtri.cli.run_picker", return_value="main"):
-            result = resolve_branch(branches, "zzz")
-        assert result == "main"
+        with pytest.raises(GtriError, match="no worktrees matching 'zzz'"):
+            resolve_branch(branches, "zzz")
 
     def test_no_search_opens_full_picker(self):
         branches = ("main", "feat-login")
@@ -106,13 +105,11 @@ class TestResolveBranch:
             result = resolve_branch(branches, "")
         assert result == "feat-login"
 
-    def test_one_branch_nonmatching_search_opens_picker(self):
+    def test_one_branch_nonmatching_search_raises_error(self):
         """Regression: 'gtri rm fea' with only 'main' must NOT auto-select main."""
         branches = ("main",)
-        with patch("gtri.cli.run_picker", return_value="main") as mock_picker:
-            result = resolve_branch(branches, "fea")
-        mock_picker.assert_called_once()
-        assert result == "main"
+        with pytest.raises(GtriError, match="no worktrees matching 'fea'"):
+            resolve_branch(branches, "fea")
 
     def test_one_branch_matching_search_confirms(self):
         branches = ("main",)
