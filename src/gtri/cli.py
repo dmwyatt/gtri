@@ -31,7 +31,7 @@ USAGE = """\
   If a search term is provided (first non-flag arg after subcommand):
     - Single match:    confirms and proceeds
     - Multiple matches: opens picker pre-filtered
-    - No matches:       opens full picker
+    - No matches:       shows warning and exits
 
 [bold]SUBCOMMANDS:[/bold]
   [green]Worktree selection[/green] (fuzzy pick an existing worktree):
@@ -103,6 +103,9 @@ def resolve_branch(branches: tuple[str, ...], search_term: str) -> str:
 
     if result.kind == SearchResult.ONLY_ONE_TOTAL:
         return result.branches[0]
+
+    if result.kind == SearchResult.NO_MATCHES:
+        raise GtriError(f"no worktrees matching '{search_term}'")
 
     if result.kind == SearchResult.SINGLE_MATCH:
         if confirm_branch(result.matched[0]):
