@@ -18,6 +18,10 @@ class TestClassifyCommand:
     def test_creation(self, cmd):
         assert classify_command(cmd) == CommandCategory.CREATION
 
+    @pytest.mark.parametrize("cmd", ["pr", "pr-ai"])
+    def test_pr(self, cmd):
+        assert classify_command(cmd) == CommandCategory.PR
+
     def test_passthrough(self):
         assert classify_command("list") == CommandCategory.PASSTHROUGH
 
@@ -57,5 +61,5 @@ class TestParseBranchTakingArgs:
 
 class TestAllCommands:
     def test_contains_all_known_commands(self):
-        expected = {"editor", "ai", "go", "run", "rm", "mv", "copy", "new", "new-ai", "list"}
+        expected = {"editor", "ai", "go", "run", "rm", "mv", "copy", "new", "new-ai", "list", "pr", "pr-ai"}
         assert set(ALL_COMMANDS) == expected

@@ -6,6 +6,7 @@ class CommandCategory(Enum):
     BRANCH_TAKING = auto()
     CREATION = auto()
     PASSTHROUGH = auto()
+    PR = auto()
 
 
 @dataclass(frozen=True)
@@ -17,8 +18,9 @@ class ParsedArgs:
 BRANCH_TAKING_COMMANDS = ("editor", "ai", "go", "run", "rm", "mv", "copy")
 CREATION_COMMANDS = ("new", "new-ai")
 PASSTHROUGH_COMMANDS = ("list",)
-ALL_COMMANDS = BRANCH_TAKING_COMMANDS + CREATION_COMMANDS + PASSTHROUGH_COMMANDS
-PICKABLE_COMMANDS = BRANCH_TAKING_COMMANDS + PASSTHROUGH_COMMANDS
+PR_COMMANDS = ("pr", "pr-ai")
+ALL_COMMANDS = BRANCH_TAKING_COMMANDS + CREATION_COMMANDS + PASSTHROUGH_COMMANDS + PR_COMMANDS
+PICKABLE_COMMANDS = BRANCH_TAKING_COMMANDS + PASSTHROUGH_COMMANDS + PR_COMMANDS
 
 
 _CATEGORY_MAP = {
@@ -27,6 +29,8 @@ _CATEGORY_MAP = {
     c: CommandCategory.CREATION for c in CREATION_COMMANDS
 } | {
     c: CommandCategory.PASSTHROUGH for c in PASSTHROUGH_COMMANDS
+} | {
+    c: CommandCategory.PR for c in PR_COMMANDS
 }
 
 
