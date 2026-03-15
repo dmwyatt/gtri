@@ -11,6 +11,7 @@ from gtri.commands import (
 from gtri.exec import exec_replace, find_executable, run_subprocess
 from gtri.output import print_command, print_error, print_info
 from gtri.picker import FuzzyPickerApp
+from gtri.pr import PullRequest, format_pr_item, parse_pr_item
 from gtri.search import SearchResult, narrow_branches
 from gtri.worktree import parse_porcelain
 
@@ -42,6 +43,11 @@ USAGE = """\
     new-ai <branch>    Create a new worktree and launch AI session
                        (with --dangerously-skip-permissions)
 
+  [green]Pull requests[/green] (pick from open PRs, create worktree):
+    pr                 Pick a PR and create a worktree for it
+    pr-ai              Pick a PR, create worktree, and launch AI session
+                       (with --dangerously-skip-permissions)
+
   [green]Passthrough:[/green]
     list               List all worktrees (passes through to git gtr list)
 
@@ -51,6 +57,7 @@ USAGE = """\
   gtri rm --delete-branch    Pick worktree, then: git gtr rm <branch> --delete-branch
   gtri new my-feature        Create worktree: git gtr new my-feature
   gtri new-ai my-feature     Create worktree + launch AI session
+  gtri pr-ai                 Pick a PR, create worktree + launch AI session
   gtri list                  List all worktrees
   gtri                       Pick subcommand, then pick worktree\
 """
@@ -85,6 +92,43 @@ def fetch_worktrees():
     if not worktrees:
         raise GtriError("no worktrees found. Create one with: gtri new <branch>")
     return worktrees
+
+
+def fetch_prs() -> tuple[PullRequest, ...]:
+    try:
+        result = subprocess.run(
+            [
+                "gh", "pr", "list",
+                "--state", "open",
+                "--json", "number,title,headRefName",
+                "--template", '{{range .}}{{.number}}\t{{.title}}\t{{.headRefName}}\n{{end}}',
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except FileNotFoundError:
+        raise GtriError(
+            "gh (GitHub CLI) is required but not installed. "
+            "See https://cli.github.com/"
+        )
+    except subprocess.CalledProcessError:
+        raise GtriError("failed to fetch pull requests")
+
+    prs: list[PullRequest] = []
+    for line in result.stdout.strip().splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3:
+            prs.append(PullRequest(
+                number=int(parts[0]),
+                title=parts[1],
+                branch=parts[2],
+            ))
+
+    if not prs:
+        raise GtriError("no open pull requests found")
+
+    return tuple(prs)
 
 
 def run_picker(items: tuple[str, ...], title: str = "Select", initial_value: str = "") -> str | None:
@@ -125,32 +169,44 @@ def resolve_branch(branches: tuple[str, ...], search_term: str) -> str:
     return selected
 
 
-def dispatch(subcmd: str, args: tuple[str, ...]) -> None:
-    category = classify_command(subcmd)
+def _dispatch_passthrough(subcmd: str, args: tuple[str, ...]) -> None:
+    exec_replace(["git", "gtr", subcmd, *args])
 
-    if category is None:
-        raise GtriError(f"unknown subcommand: {subcmd}")
 
-    if category == CommandCategory.PASSTHROUGH:
-        exec_replace(["git", "gtr", subcmd, *args])
-        return
+def _dispatch_pr(subcmd: str, args: tuple[str, ...]) -> None:
+    print_info("Fetching open pull requests...")
+    prs = fetch_prs()
+    items = tuple(format_pr_item(pr) for pr in prs)
+    selected = run_picker(items, title="Select pull request...")
+    if not selected:
+        raise GtriError("no pull request selected")
+    branch = parse_pr_item(selected)
 
-    if category == CommandCategory.CREATION:
-        if not args:
-            raise GtriError(f"usage: gtri {subcmd} <branch-name>")
-        branch = args[0]
-        extra = args[1:]
+    print_info(f"Creating worktree for branch: {branch}")
+    run_subprocess(["git", "gtr", "new", branch])
 
-        if subcmd == "new-ai":
-            print_info(f"Creating branch: {branch}")
-            run_subprocess(["git", "gtr", "new", branch])
-            print_info("Running git gtr ai with --dangerously-skip-permissions...")
-            exec_replace(["git", "gtr", "ai", branch, "--", "--dangerously-skip-permissions", *extra])
-        else:
-            print_command(f"git gtr new {branch}")
-            exec_replace(["git", "gtr", "new", branch, *extra])
-        return
+    if subcmd == "pr-ai":
+        print_info("Running git gtr ai with --dangerously-skip-permissions...")
+        exec_replace(["git", "gtr", "ai", branch, "--", "--dangerously-skip-permissions", *args])
 
+
+def _dispatch_creation(subcmd: str, args: tuple[str, ...]) -> None:
+    if not args:
+        raise GtriError(f"usage: gtri {subcmd} <branch-name>")
+    branch = args[0]
+    extra = args[1:]
+
+    if subcmd == "new-ai":
+        print_info(f"Creating branch: {branch}")
+        run_subprocess(["git", "gtr", "new", branch])
+        print_info("Running git gtr ai with --dangerously-skip-permissions...")
+        exec_replace(["git", "gtr", "ai", branch, "--", "--dangerously-skip-permissions", *extra])
+    else:
+        print_command(f"git gtr new {branch}")
+        exec_replace(["git", "gtr", "new", branch, *extra])
+
+
+def _dispatch_branch_taking(subcmd: str, args: tuple[str, ...]) -> None:
     parsed = parse_branch_taking_args(args)
     worktrees = fetch_worktrees()
     branches = tuple(wt.branch for wt in worktrees)
@@ -159,6 +215,21 @@ def dispatch(subcmd: str, args: tuple[str, ...]) -> None:
     cmd = ["git", "gtr", subcmd, branch, *parsed.extra_flags]
     print_command(" ".join(cmd))
     exec_replace(cmd)
+
+
+_DISPATCH = {
+    CommandCategory.PASSTHROUGH: _dispatch_passthrough,
+    CommandCategory.PR: _dispatch_pr,
+    CommandCategory.CREATION: _dispatch_creation,
+    CommandCategory.BRANCH_TAKING: _dispatch_branch_taking,
+}
+
+
+def dispatch(subcmd: str, args: tuple[str, ...]) -> None:
+    category = classify_command(subcmd)
+    if category is None:
+        raise GtriError(f"unknown subcommand: {subcmd}")
+    _DISPATCH[category](subcmd, args)
 
 
 def print_usage() -> None:

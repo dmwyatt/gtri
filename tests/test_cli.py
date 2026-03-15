@@ -6,11 +6,13 @@ import pytest
 from gtri import GtriError
 from gtri.cli import (
     check_dependencies,
+    fetch_prs,
     fetch_worktrees,
     resolve_branch,
     dispatch,
     main,
 )
+from gtri.pr import PullRequest
 from gtri.search import SearchResult, NarrowResult
 
 
@@ -67,6 +69,52 @@ class TestFetchWorktrees:
         with patch("subprocess.run", return_value=mock_result):
             with pytest.raises(GtriError, match="no worktrees found"):
                 fetch_worktrees()
+
+
+class TestFetchPrs:
+    def test_parses_gh_output(self):
+        gh_output = "123\tAdd caching\tfeature/caching\n456\tFix bug\tfix/bug\n"
+        mock_result = MagicMock()
+        mock_result.stdout = gh_output
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            result = fetch_prs()
+        assert len(result) == 2
+        assert result[0] == PullRequest(number=123, title="Add caching", branch="feature/caching")
+        assert result[1] == PullRequest(number=456, title="Fix bug", branch="fix/bug")
+        mock_run.assert_called_once_with(
+            [
+                "gh", "pr", "list",
+                "--state", "open",
+                "--json", "number,title,headRefName",
+                "--template", '{{range .}}{{.number}}\t{{.title}}\t{{.headRefName}}\n{{end}}',
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+    def test_no_prs(self):
+        mock_result = MagicMock()
+        mock_result.stdout = ""
+        with patch("subprocess.run", return_value=mock_result):
+            with pytest.raises(GtriError, match="no open pull requests found"):
+                fetch_prs()
+
+    def test_gh_not_installed(self):
+        with patch(
+            "subprocess.run",
+            side_effect=FileNotFoundError("gh not found"),
+        ):
+            with pytest.raises(GtriError, match="gh .* is required"):
+                fetch_prs()
+
+    def test_gh_command_fails(self):
+        with patch(
+            "subprocess.run",
+            side_effect=subprocess.CalledProcessError(1, "gh"),
+        ):
+            with pytest.raises(GtriError, match="failed to fetch pull requests"):
+                fetch_prs()
 
 
 class TestResolveBranch:
@@ -173,6 +221,75 @@ class TestDispatch:
         with patch("gtri.cli.exec_replace") as mock_exec:
             dispatch("list", ())
             mock_exec.assert_called_once_with(["git", "gtr", "list"])
+
+    def test_pr_command(self):
+        prs = (
+            PullRequest(number=10, title="Add feature", branch="feature/add"),
+            PullRequest(number=20, title="Fix bug", branch="fix/bug"),
+        )
+        with patch("gtri.cli.fetch_prs", return_value=prs):
+            with patch(
+                "gtri.cli.run_picker",
+                return_value="#10 Add feature (feature/add)",
+            ):
+                with patch("gtri.cli.run_subprocess") as mock_run:
+                    with patch("gtri.cli.exec_replace") as mock_exec:
+                        dispatch("pr", ())
+                        mock_run.assert_called_once_with(
+                            ["git", "gtr", "new", "feature/add"]
+                        )
+                        mock_exec.assert_not_called()
+
+    def test_pr_ai_command(self):
+        prs = (
+            PullRequest(number=10, title="Add feature", branch="feature/add"),
+        )
+        with patch("gtri.cli.fetch_prs", return_value=prs):
+            with patch(
+                "gtri.cli.run_picker",
+                return_value="#10 Add feature (feature/add)",
+            ):
+                with patch("gtri.cli.run_subprocess") as mock_run:
+                    with patch("gtri.cli.exec_replace") as mock_exec:
+                        dispatch("pr-ai", ())
+                        mock_run.assert_called_once_with(
+                            ["git", "gtr", "new", "feature/add"]
+                        )
+                        mock_exec.assert_called_once_with(
+                            [
+                                "git", "gtr", "ai", "feature/add",
+                                "--", "--dangerously-skip-permissions",
+                            ]
+                        )
+
+    def test_pr_picker_cancelled(self):
+        prs = (
+            PullRequest(number=10, title="Add feature", branch="feature/add"),
+        )
+        with patch("gtri.cli.fetch_prs", return_value=prs):
+            with patch("gtri.cli.run_picker", return_value=None):
+                with pytest.raises(GtriError, match="no pull request selected"):
+                    dispatch("pr", ())
+
+    def test_pr_passes_extra_args_to_ai(self):
+        prs = (
+            PullRequest(number=10, title="Add feature", branch="feature/add"),
+        )
+        with patch("gtri.cli.fetch_prs", return_value=prs):
+            with patch(
+                "gtri.cli.run_picker",
+                return_value="#10 Add feature (feature/add)",
+            ):
+                with patch("gtri.cli.run_subprocess"):
+                    with patch("gtri.cli.exec_replace") as mock_exec:
+                        dispatch("pr-ai", ("--some-flag",))
+                        mock_exec.assert_called_once_with(
+                            [
+                                "git", "gtr", "ai", "feature/add",
+                                "--", "--dangerously-skip-permissions",
+                                "--some-flag",
+                            ]
+                        )
 
     def test_unknown_command(self):
         with pytest.raises(GtriError, match="unknown subcommand"):
