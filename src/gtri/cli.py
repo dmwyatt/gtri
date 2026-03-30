@@ -41,12 +41,14 @@ USAGE = """\
   [green]Creation:[/green]
     new <branch>       Create a new worktree
     new-ai <branch>    Create a new worktree and launch AI session
-                       (with --dangerously-skip-permissions)
+                       (with --enable-auto-mode; pass --dangerous for
+                       --dangerously-skip-permissions)
 
   [green]Pull requests[/green] (pick from open PRs, create worktree):
     pr                 Pick a PR and create a worktree for it
     pr-ai              Pick a PR, create worktree, and launch AI session
-                       (with --dangerously-skip-permissions)
+                       (with --enable-auto-mode; pass --dangerous for
+                       --dangerously-skip-permissions)
 
   [green]Passthrough:[/green]
     list               List all worktrees (passes through to git gtr list)
@@ -186,8 +188,11 @@ def _dispatch_pr(subcmd: str, args: tuple[str, ...]) -> None:
     run_subprocess(["git", "gtr", "new", branch])
 
     if subcmd == "pr-ai":
-        print_info("Running git gtr ai with --dangerously-skip-permissions...")
-        exec_replace(["git", "gtr", "ai", branch, "--", "--dangerously-skip-permissions", *args])
+        dangerous = "--dangerous" in args
+        args = tuple(a for a in args if a != "--dangerous")
+        ai_flag = "--dangerously-skip-permissions" if dangerous else "--enable-auto-mode"
+        print_info(f"Running git gtr ai with {ai_flag}...")
+        exec_replace(["git", "gtr", "ai", branch, "--", ai_flag, *args])
 
 
 def _dispatch_creation(subcmd: str, args: tuple[str, ...]) -> None:
@@ -197,10 +202,13 @@ def _dispatch_creation(subcmd: str, args: tuple[str, ...]) -> None:
     extra = args[1:]
 
     if subcmd == "new-ai":
+        dangerous = "--dangerous" in extra
+        extra = tuple(a for a in extra if a != "--dangerous")
+        ai_flag = "--dangerously-skip-permissions" if dangerous else "--enable-auto-mode"
         print_info(f"Creating branch: {branch}")
         run_subprocess(["git", "gtr", "new", branch])
-        print_info("Running git gtr ai with --dangerously-skip-permissions...")
-        exec_replace(["git", "gtr", "ai", branch, "--", "--dangerously-skip-permissions", *extra])
+        print_info(f"Running git gtr ai with {ai_flag}...")
+        exec_replace(["git", "gtr", "ai", branch, "--", ai_flag, *extra])
     else:
         print_command(f"git gtr new {branch}")
         exec_replace(["git", "gtr", "new", branch, *extra])
