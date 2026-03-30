@@ -202,10 +202,21 @@ class TestDispatch:
         with pytest.raises(GtriError, match="usage: gtri new <branch"):
             dispatch("new", ())
 
-    def test_new_ai_command(self):
+    def test_new_ai_command_uses_auto_mode_by_default(self):
         with patch("gtri.cli.run_subprocess") as mock_run:
             with patch("gtri.cli.exec_replace") as mock_exec:
                 dispatch("new-ai", ("my-feature",))
+                mock_run.assert_called_once_with(
+                    ["git", "gtr", "new", "my-feature"]
+                )
+                mock_exec.assert_called_once_with(
+                    ["git", "gtr", "ai", "my-feature", "--", "--enable-auto-mode"]
+                )
+
+    def test_new_ai_dangerous_flag(self):
+        with patch("gtri.cli.run_subprocess") as mock_run:
+            with patch("gtri.cli.exec_replace") as mock_exec:
+                dispatch("new-ai", ("my-feature", "--dangerous"))
                 mock_run.assert_called_once_with(
                     ["git", "gtr", "new", "my-feature"]
                 )
@@ -240,7 +251,7 @@ class TestDispatch:
                         )
                         mock_exec.assert_not_called()
 
-    def test_pr_ai_command(self):
+    def test_pr_ai_command_uses_auto_mode_by_default(self):
         prs = (
             PullRequest(number=10, title="Add feature", branch="feature/add"),
         )
@@ -252,6 +263,28 @@ class TestDispatch:
                 with patch("gtri.cli.run_subprocess") as mock_run:
                     with patch("gtri.cli.exec_replace") as mock_exec:
                         dispatch("pr-ai", ())
+                        mock_run.assert_called_once_with(
+                            ["git", "gtr", "new", "feature/add"]
+                        )
+                        mock_exec.assert_called_once_with(
+                            [
+                                "git", "gtr", "ai", "feature/add",
+                                "--", "--enable-auto-mode",
+                            ]
+                        )
+
+    def test_pr_ai_dangerous_flag(self):
+        prs = (
+            PullRequest(number=10, title="Add feature", branch="feature/add"),
+        )
+        with patch("gtri.cli.fetch_prs", return_value=prs):
+            with patch(
+                "gtri.cli.run_picker",
+                return_value="#10 Add feature (feature/add)",
+            ):
+                with patch("gtri.cli.run_subprocess") as mock_run:
+                    with patch("gtri.cli.exec_replace") as mock_exec:
+                        dispatch("pr-ai", ("--dangerous",))
                         mock_run.assert_called_once_with(
                             ["git", "gtr", "new", "feature/add"]
                         )
@@ -283,6 +316,26 @@ class TestDispatch:
                 with patch("gtri.cli.run_subprocess"):
                     with patch("gtri.cli.exec_replace") as mock_exec:
                         dispatch("pr-ai", ("--some-flag",))
+                        mock_exec.assert_called_once_with(
+                            [
+                                "git", "gtr", "ai", "feature/add",
+                                "--", "--enable-auto-mode",
+                                "--some-flag",
+                            ]
+                        )
+
+    def test_pr_ai_dangerous_with_extra_args(self):
+        prs = (
+            PullRequest(number=10, title="Add feature", branch="feature/add"),
+        )
+        with patch("gtri.cli.fetch_prs", return_value=prs):
+            with patch(
+                "gtri.cli.run_picker",
+                return_value="#10 Add feature (feature/add)",
+            ):
+                with patch("gtri.cli.run_subprocess"):
+                    with patch("gtri.cli.exec_replace") as mock_exec:
+                        dispatch("pr-ai", ("--dangerous", "--some-flag"))
                         mock_exec.assert_called_once_with(
                             [
                                 "git", "gtr", "ai", "feature/add",
